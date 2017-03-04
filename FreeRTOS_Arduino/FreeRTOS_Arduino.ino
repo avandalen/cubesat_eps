@@ -2,6 +2,10 @@
 #include <MAX11300registers.h>
 #include <Arduino_FreeRTOS.h>
 #include <SPI.h>
+#include "avr/pgmspace.h"
+
+#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))  //clear
+#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))   //set
 
 uint8_t convertPin = 9;
 uint8_t selectPin = 6;
@@ -25,6 +29,10 @@ void setup() {
   
   Serial.begin(9600);
   
+  sei();                    // global enable interrupts
+  setupTimerInterrupts();
+  setupExternalInterrupts();
+  
   MAX11300.begin();
   
   // Identify shield by ID register  
@@ -35,14 +43,12 @@ void setup() {
   }
   
   // set ADC mode
-  /* Continuous sweep through the specified pins
-  */
+  // Continuous sweep through the specified pins
   MAX11300.setADCmode(ContinuousSweep);
   if (MAX11300.getADCmode() == ContinuousSweep){Serial.println("ADC mode set to ContinuousSweep");}
   
   // set conversion rate
-  /* 400ksps
-  */
+  // 400ksps
   MAX11300.setConversionRate(rate400ksps);
   if (MAX11300.getConversionRate() == rate400ksps){Serial.println("ADC set to rate400ksps");}
   
@@ -89,8 +95,7 @@ void setup() {
   //if (MAX11300.getPinModeMAX(19) == analogIn){Serial.println("pin19 set to ADC");} if(MAX11300.getPinADCRange(19) == ADCZeroTo10){Serial.println("pin19 set zero to 10");}
 
   // set voltage reference per pin
-  /* internal
-   */
+  // internal
   for (uint8_t i=0; i<20; i++){
     MAX11300.setPinADCref(i, ADCInternal);
     if (MAX11300.getPinADCref(i) == ADCInternal){
@@ -100,19 +105,17 @@ void setup() {
   }
   
   // set averaging per pin
-  /* set to average 4 samples before loading into ADC reg for pin
-   */
+  // set to average 4 samples before loading into ADC reg for pin
   for (uint8_t i=0; i<20; i++){
     MAX11300.setPinAveraging (i, 4);
     Serial.println(MAX11300.getPinAveraging(i));
   }
   
   // enable required temperature sensors
-  /* 3 sensors can be enables
-   * ext2 ext1 internal 
-   * count up in 3 bits
-   * ie// mode 5 -> 101 -> ext2 enabled and internal enables
-   */
+  // 3 sensors can be enables
+  // ext2 ext1 internal 
+  // count up in 3 bits
+  // ie// mode 5 -> 101 -> ext2 enabled and internal enables
   MAX11300.setTempSensorEnableMode(mode1);
   if (MAX11300.getTempSensorEnableMode() == mode0){Serial.println("temp mode0");}
   else if (MAX11300.getTempSensorEnableMode() == mode1){Serial.println("temp mode1");}
@@ -152,7 +155,7 @@ void TaskInternalTemp(void *pvParameters){
   for (;;){
     taskENTER_CRITICAL();
     internalTemp = MAX11300.readInternalTemp();
-    Serial.println(internalTemp);
+    //Serial.println(internalTemp);
     taskEXIT_CRITICAL();
     vTaskDelay(1);  // one tick delay (15ms) in between reads for stability
   }
@@ -167,7 +170,7 @@ void TaskBlink(void *pvParameters){
     vTaskDelay( 1000 / portTICK_PERIOD_MS ); // wait for one second
     digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
     vTaskDelay( 1000 / portTICK_PERIOD_MS ); // wait for one second
-    Serial.println("hello");
+    //Serial.println("hello");
   }
 }
 void TaskAnalogRead(void *pvParameters){
@@ -179,3 +182,96 @@ void TaskAnalogRead(void *pvParameters){
     vTaskDelay(1);  // one tick delay (15ms) in between reads for stability
   }
 }
+
+ISR(TIMER1_COMPA_vect) { // Interrupt Vectors in ATmega328/P
+  //period = 4.194 s
+  //remember to make variables used in interrupts volatile 
+  Serial.println("in timer ISR");
+  // check internal and battery temperature
+}
+
+void PIN2_ISR() { // ISR for pin 2
+  Serial.println("pin2 ISR");
+}
+
+void PIN3_ISR() { // ISR for pin 3
+  Serial.println("pin3 ISR");
+}
+
+
+/*
+// Install the interrupt routine.
+ISR(INT0_vect) {
+  Serial.println("int 0 ISR");
+}
+
+// Install the interrupt routine.
+ISR(INT1_vect) {
+  Serial.println("int 1 ISR");
+}
+*/
+
+void setupTimerInterrupts() {
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCNT1  = 0;
+  OCR1A  = 65534;     // must be 2 less than maximum of 65534
+              
+    // compare match register 16*10^6/(1024*65536) = 0.238 Hz, period = 4.194 s
+
+  //TCCR1A –Timer/Counter Control Register A
+  //TCCR1A[7:6]: Compare Output Mode for Channel
+  //10 -> Clear OC1A on Compare Match 
+  sbi (TCCR1A, COM1A1); //1
+  cbi (TCCR1A, COM1A0); //0 
+
+  //TCCR1A/B –Timer/Counter Control Register A/B
+  //WGM[13:10]: Waveform Generation Mode  
+  //CTC - Clear timer on compare-match of OCR1A mode. Mode 4
+  //Combined with the WGM22 bit found in the TCCR2B Register, these bits control the counting sequence of the counter, the source for maximum (TOP) counter value, and what type of waveform generation to be used
+  //0001 -> Mode 1  / Phase Correct PWM
+
+  cbi (TCCR1B, WGM13); //0 
+  sbi (TCCR1B, WGM12); //1
+  cbi (TCCR1A, WGM11); //0  
+  cbi (TCCR1A, WGM10); //0
+  
+  //TCCR1B –Timer/Counter Control Register B
+  //CS[12:10]: Clock Select 
+  //100 -> 1024 prescaler
+  sbi (TCCR1B, CS12); //1
+  cbi (TCCR1B, CS11); //0
+  sbi (TCCR1B, CS10); //1
+
+  //TIMSK1 -Timer/Counter 1 Interrupt Mask Register
+  //OCIEA: Output Compare A Match Interrupt Enable
+  sbi (TIMSK1, OCIE1A); //1
+}
+
+void setupExternalInterrupts() {
+  pinMode(2, INPUT);
+  pinMode(3, INPUT);
+  digitalWrite(2, HIGH);    // Enable pullup resistor
+  digitalWrite(3, HIGH);    // Enable pullup resistor
+
+  // done this way as using ISR(INT1_vect) and ISR(INT0_vect) conflicts with libraries in this project
+  attachInterrupt(digitalPinToInterrupt(2), PIN2_ISR, LOW);
+  attachInterrupt(digitalPinToInterrupt(3), PIN3_ISR, LOW);
+}
+  /*
+  // INT1/0: External Interrupt Request 1/0 Enable
+  sbi (EIMSK, INT1);  //1
+  sbi (EIMSK, INT0);  //1
+ 
+  //00 The low level of INT1/0 generates an interrupt request.
+  //01 Any logical change on INT1/0 generates an interrupt request.
+  //10 The falling edge of INT1/0 generates an interrupt request.
+  //11 The rising edge of INT1/0 generates an interrupt request.
+  //INT1
+  sbi (EICRA, ISC11); //1
+  sbi (EICRA, ISC10); //1
+  // INT0
+  sbi (EICRA, ISC01); //1
+  sbi (EICRA, ISC00); //1
+}
+*/
