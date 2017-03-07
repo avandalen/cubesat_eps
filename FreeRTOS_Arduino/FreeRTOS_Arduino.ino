@@ -8,19 +8,26 @@
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))   //set
 
 uint8_t convertPin = 9;
-uint8_t selectPin = 6;
-uint16_t MAX_ID = 0;
+uint8_t selectPin  = 6;
+uint16_t MAX_ID    = 0;
 
-const uint8_t numberOfSensors = 12;
+const uint8_t numberOfSingEndSensors = 4;
+const uint8_t numberOfDiffSensors    = 8; // 1/2 the number of channels that act as differential
 
 //voltages
 float vCell       = 0;
 float vBatt       = 0;
 float v3v3Bus     = 0;
 float v5vBus      = 0;
+
+/*
 float vPort1      = 0;
 float vPort2      = 0;
 float vPort3      = 0;
+float vPort4      = 0;
+float vPort5      = 0;
+float vPort6      = 0;
+*/
 
 // currents
 float i_cell      = 0;
@@ -28,23 +35,26 @@ float iSystem     = 0;
 float iPort1      = 0;
 float iPort2      = 0;
 float iPort3      = 0;
+float iPort4      = 0;
+float iPort5      = 0;
+float iPort6      = 0;
 
 // temperatures
 double tBattery     = 0;
-double tInternal = 0;
+double tInternal    = 0;
 
 MAX11300 MAX11300(&SPI, convertPin, selectPin);
 
 // Define Tasks
 void TaskInternalTemp   (void *pvParameters);
 void TaskBlink          (void *pvParameters);
-void TaskObtainSamples     (void *pvParameters);
+void TaskObtainSamples  (void *pvParameters);
 
 
 void setup() {
   // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
   // Third argument is the number of words (not bytes!) to allocate for use as the task's stack.
-  xTaskCreate(TaskObtainSamples,  (const portCHAR *) "ObtainSamples", 128, NULL, 1, NULL);
+  xTaskCreate(TaskObtainSamples,  (const portCHAR *) "ObtainSamples", 256, NULL, 1, NULL);
   xTaskCreate(TaskInternalTemp,   (const portCHAR *) "InternalTemp" , 128, NULL, 4, NULL);
   xTaskCreate(TaskBlink,          (const portCHAR *) "Blink"        , 128, NULL, 3, NULL);
   
@@ -53,6 +63,13 @@ void setup() {
   sei();                    // global enable interrupts
   setupTimerInterrupts();
   setupExternalInterrupts();
+
+  // setup MCU as I2C slave so that the onboard computer can request power over I2C // slave sender, master reader, Sends data as an I2C/TWI slave device
+  // also have the ground Arduino request data as a master
+
+  // master writer, slave receiver -> master sends, slave prints out received message       <- for the EPS to 'ground' Arduino
+
+  // master reader, slave sender   -> master requests, slave sends what has been requested  <- for the EPS to onboard computer
   
   MAX11300.begin();
   
@@ -84,25 +101,53 @@ void setup() {
   //if (MAX11300.getPinModeMAX(2) == analogIn){Serial.println("pin 2 set to ADC");} if(MAX11300.getPinADCRange(2) == ADCZeroTo10){Serial.println("pin2 set zero to 10");}
   MAX11300.setPinModeMAX(3, MAX_FUNCID_ADC, ADCZeroTo10);
   //if (MAX11300.getPinModeMAX(3) == analogIn){Serial.println("pin 3 set to ADC");} if(MAX11300.getPinADCRange(3) == ADCZeroTo10){Serial.println("pin3 set zero to 10");}
+  
+  // Positive analog input to single-ended ADC -> subtract pairs for system currents -> differential mode producing some spurious results
   MAX11300.setPinModeMAX(4, MAX_FUNCID_ADC, ADCZeroTo10);
   //if (MAX11300.getPinModeMAX(4) == analogIn){Serial.println("pin 4 set to ADC");} if(MAX11300.getPinADCRange(4) == ADCZeroTo10){Serial.println("pin4 set zero to 10");}
   MAX11300.setPinModeMAX(5, MAX_FUNCID_ADC, ADCZeroTo10);
   //if (MAX11300.getPinModeMAX(5) == analogIn){Serial.println("pin 5 set to ADC");} if(MAX11300.getPinADCRange(5) == ADCZeroTo10){Serial.println("pin5 set zero to 10");}
   MAX11300.setPinModeMAX(6, MAX_FUNCID_ADC, ADCZeroTo10);
   //if (MAX11300.getPinModeMAX(6) == analogIn){Serial.println("pin 6 set to ADC");} if(MAX11300.getPinADCRange(6) == ADCZeroTo10){Serial.println("pin6 set zero to 10");}
+  MAX11300.setPinModeMAX(7, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(7) == analogIn){Serial.println("pin 7 set to ADC");} if(MAX11300.getPinADCRange(7) == ADCZeroTo10){Serial.println("pin7 set zero to 10");}
+  MAX11300.setPinModeMAX(8, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(8) == analogIn){Serial.println("pin 8 set to ADC");} if(MAX11300.getPinADCRange(8) == ADCZeroTo10){Serial.println("pin8 set zero to 10");}
+  MAX11300.setPinModeMAX(9, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(9) == analogIn){Serial.println("pin 9 set to ADC");} if(MAX11300.getPinADCRange(9) == ADCZeroTo10){Serial.println("pin9 set zero to 10");}
+  MAX11300.setPinModeMAX(10, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(10) == analogIn){Serial.println("pin 10 set to ADC");} if(MAX11300.getPinADCRange(10) == ADCZeroTo10){Serial.println("pin10 set zero to 10");}
+  MAX11300.setPinModeMAX(11, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(11) == analogIn){Serial.println("pin 11 set to ADC");} if(MAX11300.getPinADCRange(11) == ADCZeroTo10){Serial.println("pin11 set zero to 10");}
+  MAX11300.setPinModeMAX(12, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(12) == analogIn){Serial.println("pin 12 set to ADC");} if(MAX11300.getPinADCRange(12) == ADCZeroTo10){Serial.println("pin12 set zero to 10");}
+  MAX11300.setPinModeMAX(13, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(13) == analogIn){Serial.println("pin 13 set to ADC");} if(MAX11300.getPinADCRange(13) == ADCZeroTo10){Serial.println("pin13 set zero to 10");}
+  MAX11300.setPinModeMAX(14, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(14) == analogIn){Serial.println("pin 14 set to ADC");} if(MAX11300.getPinADCRange(14) == ADCZeroTo10){Serial.println("pin14 set zero to 10");}
+  MAX11300.setPinModeMAX(15, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(15) == analogIn){Serial.println("pin 15 set to ADC");} if(MAX11300.getPinADCRange(15) == ADCZeroTo10){Serial.println("pin15 set zero to 10");}
+  MAX11300.setPinModeMAX(16, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(16) == analogIn){Serial.println("pin 16 set to ADC");} if(MAX11300.getPinADCRange(16) == ADCZeroTo10){Serial.println("pin16 set zero to 10");}
+  MAX11300.setPinModeMAX(17, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(17) == analogIn){Serial.println("pin 17 set to ADC");} if(MAX11300.getPinADCRange(17) == ADCZeroTo10){Serial.println("pin17 set zero to 10");}
+  MAX11300.setPinModeMAX(18, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(18) == analogIn){Serial.println("pin 18 set to ADC");} if(MAX11300.getPinADCRange(18) == ADCZeroTo10){Serial.println("pin18 set zero to 10");}
+  MAX11300.setPinModeMAX(19, MAX_FUNCID_ADC, ADCZeroTo10);
+  //if (MAX11300.getPinModeMAX(19) == analogIn){Serial.println("pin 19 set to ADC");} if(MAX11300.getPinADCRange(19) == ADCZeroTo10){Serial.println("pin19 set zero to 10");}
+
 
   // Positive analog input to differential ADC -> for system currents
   // setPinModeMAX(uint8_t pin, pinMode_t mode, ADCRange_t ADCrange, uint8_t differentialPin);
-
-  MAX11300.setPinModeMAX(7, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 8);
+  // MAX11300.setPinModeMAX(7, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 8);
   /*
   if (MAX11300.getPinModeMAX(7) == analogIn){Serial.println("pin 7 set to differential ADC");}
   Serial.print("pin "); Serial.print(MAX11300.getDifferentialPin(7)); Serial.println(" is pin 7's differential partner");  
   if(MAX11300.getPinADCRange(7) == ADCZeroTo10){Serial.println("pin 7 set zero to 10");}
   if(MAX11300.getPinADCRange(8) == ADCZeroTo10){Serial.println("pin 8 set zero to 10");}
   */
-
-  MAX11300.setPinModeMAX(9, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 10);
+  
+  // MAX11300.setPinModeMAX(9, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 10);
   /*
   if (MAX11300.getPinModeMAX(9) == analogIn){Serial.println("pin 9 set to differential ADC");}
   Serial.print("pin "); Serial.print(MAX11300.getDifferentialPin(9)); Serial.println(" is pin 9's differential partner");  
@@ -110,7 +155,7 @@ void setup() {
   if(MAX11300.getPinADCRange(10) == ADCZeroTo10){Serial.println("pin 10 set zero to 10");}
   */
 
-  MAX11300.setPinModeMAX(11, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 12);
+  // MAX11300.setPinModeMAX(11, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 12);
   /*
   if (MAX11300.getPinModeMAX(11) == analogIn){Serial.println("pin 11 set to differential ADC");}
   Serial.print("pin "); Serial.print(MAX11300.getDifferentialPin(11)); Serial.println(" is pin 11's differential partner");  
@@ -118,7 +163,7 @@ void setup() {
   if(MAX11300.getPinADCRange(12) == ADCZeroTo10){Serial.println("pin 12 set zero to 10");}
   */
 
-  MAX11300.setPinModeMAX(13, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 14);
+  // MAX11300.setPinModeMAX(13, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 14);
   /*
   if (MAX11300.getPinModeMAX(13) == analogIn){Serial.println("pin 13 set to differential ADC");}
   Serial.print("pin "); Serial.print(MAX11300.getDifferentialPin(13)); Serial.println(" is pin 13's differential partner");  
@@ -126,7 +171,7 @@ void setup() {
   if(MAX11300.getPinADCRange(14) == ADCZeroTo10){Serial.println("pin 14 set zero to 10");}
   */
 
-  MAX11300.setPinModeMAX(15, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 16);
+  // MAX11300.setPinModeMAX(15, MAX_FUNCID_ADC_DIFF_POS, ADCZeroTo10, 16);
   /*
   if (MAX11300.getPinModeMAX(15) == analogIn){Serial.println("pin 15 set to differential ADC");}
   Serial.print("pin "); Serial.print(MAX11300.getDifferentialPin(15)); Serial.println(" is pin 15's differential partner");  
@@ -136,7 +181,7 @@ void setup() {
 
   // set voltage reference per pin
   // internal
-  for (uint8_t i = 0; i < 16; i++){
+  for (uint8_t i = 0; i < 20; i++){
     MAX11300.setPinADCref(i, ADCInternal);
     if (MAX11300.getPinADCref(i) == ADCInternal){
         Serial.print(i);
@@ -148,8 +193,8 @@ void setup() {
   // set to average 128 samples before loading into ADC reg for pin
   // NB/ Since one conversion per ADC-configured port is performed per sweep, 
   // many sweeps may be required before refreshing the data register of a given ADC-configured port that utilizes the averaging function.
-  for (uint8_t i = 0; i < 16; i++){
-    MAX11300.setPinAveraging (i, 128);
+  for (uint8_t i = 0; i < 20; i++){
+    MAX11300.setPinAveraging (i, 64);
     Serial.println(MAX11300.getPinAveraging(i));
   }
   
@@ -169,21 +214,24 @@ void loop(){
 /*---------------------- Tasks ---------------------*/
 /*--------------------------------------------------*/
 
-void TaskObtainSamples(void *pvParameters){
+void TaskObtainSamples(void *pvParameters) {
   // Perform an action every 30 ticks.
   // 1 tick = 15ms (ATMEGA watchdog timer used)
   // NB/ ADC data format is straight binary in single-ended mode, and two’s complement in differential and pseudo- differential modes.
+  
   TickType_t xLastWakeTime;
-  const TickType_t xFrequency = 20;
+  const TickType_t xFrequency = 10;
+  // Initialise the xLastWakeTime variable with the current time.
+  xLastWakeTime = xTaskGetTickCount();
 
-  uint16_t rawResults[1]    = {0};
-  float    scaledResults[1] = {0};
+  // initialise arrays to contain ADC data
+  uint16_t  rawResultsSing[4]                           = {0};
+  uint16_t  rawResultsDiff[16]                          = {0};
+  // int16_t  rawResultsDiff[numberOfDiffSensors]       = {0};
+  float    scaledResultsSing[4]                         = {0};
+  float    scaledResultsDiff[8]                         = {0};
 
-  /*
-  uint16_t rawResults[numberOfSensors]    = {0};
-  float    scaledResults[numberOfSensors] = {0};
-  */
-  for (;;){
+  for (;;) {
     /*
     uint16_t readAnalogPin (uint8_t pin);
     bool burstAnalogRead (uint16_t* samples, uint8_t size);
@@ -192,21 +240,41 @@ void TaskObtainSamples(void *pvParameters){
     void serviceInterrupt(void);
     */
     // Wait for the next cycle.
-    vTaskDelayUntil( &xLastWakeTime, xFrequency );
+
+    vTaskDelayUntil( &xLastWakeTime, xFrequency);
+
+    
+    // Single-ended results  -> 0 to 3
     taskENTER_CRITICAL();
-    MAX11300.burstAnalogRead(7, rawResults, 1);
-    scaledResults[0] = (((float)(rawResults[0]))*10)/4096;
-    Serial.println(scaledResults[0]);
-    /*
-    for (uint8_t i = 0; i < numberOfSensors; i++) {
-    MAX11300.burstAnalogRead(0, rawResults, numberOfSensors);
-    scaledResults[i] = (((float)(rawResults[i]))*10)/4096;
-    Serial.println(scaledResults[0]);
-    }
-    */
+    MAX11300.burstAnalogRead(0, rawResultsSing, numberOfSingEndSensors);
     taskEXIT_CRITICAL();
+    for (uint8_t i = 0; i < numberOfSingEndSensors; i++) {
+      scaledResultsSing[i] = 10*((float)(rawResultsSing[0]))/4096; 
+    }
+
+    // Differential results -> 4 to 19
+    taskENTER_CRITICAL();
+    MAX11300.burstAnalogRead(4, rawResultsDiff, 16);
+    taskEXIT_CRITICAL();
+    for (uint8_t i = 0; i < 8; i++) {
+      scaledResultsDiff[i] = (10*((float)(rawResultsDiff[(2*i)+1]))/4096) - (10*((float)(rawResultsDiff[2*i]))/4096);
+      Serial.println(scaledResultsDiff[i]);
+    }
+
+    /*
+    // REMEMBER TO PASS AN int ARRAY NOT uint IF YOU WANT TO USE THIS GUY
+    // Differentially configured results
+    MAX11300.burstAnalogDiffRead(7, rawResultsDiff, 1);
+    scaledResultsDiff[0] = (10*((float)(rawResultsDiff[0]))/2048); // for some reason differential reading is 2.67 ish volts out
+    Serial.println(scaledResultsDiff[0]);
+    */
   }
 }
+
+
+    
+
+  
 
 void TaskInternalTemp(void *pvParameters) {
   // Perform an action every 1000 ticks.
