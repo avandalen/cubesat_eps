@@ -40,7 +40,8 @@ float iPort5      = 0;
 float iPort6      = 0;
 
 // temperatures
-double tBattery     = 0;
+double tExternal2   = 0;
+double tExternal1   = 0;
 double tInternal    = 0;
 
 MAX11300 MAX11300(&SPI, convertPin, selectPin);
@@ -86,6 +87,7 @@ void setup() {
   if (MAX11300.getADCmode() == ContinuousSweep){Serial.println("ADC mode set to ContinuousSweep");}
   
   // set conversion rate
+  // decrease this and increase the averaging amount to get
   // 400ksps
   MAX11300.setConversionRate(rate400ksps);
   if (MAX11300.getConversionRate() == rate400ksps){Serial.println("ADC set to rate400ksps");}
@@ -203,8 +205,8 @@ void setup() {
   // ext2 ext1 internal 
   // count up in 3 bits
   // ie// mode 5 -> 101 -> ext2 enabled and internal enables
-  MAX11300.setTempSensorEnableMode(mode1);
-  if (MAX11300.getTempSensorEnableMode() == mode0){Serial.println("temp mode0");}
+  MAX11300.setTempSensorEnableMode(mode7);
+  if (MAX11300.getTempSensorEnableMode() == mode7){Serial.println("temp mode7");}
  
 }
 void loop(){
@@ -242,7 +244,6 @@ void TaskObtainSamples(void *pvParameters) {
     // Wait for the next cycle.
 
     vTaskDelayUntil( &xLastWakeTime, xFrequency);
-
     
     // Single-ended results  -> 0 to 3
     taskENTER_CRITICAL();
@@ -258,7 +259,7 @@ void TaskObtainSamples(void *pvParameters) {
     taskEXIT_CRITICAL();
     for (uint8_t i = 0; i < 8; i++) {
       scaledResultsDiff[i] = (10*((float)(rawResultsDiff[(2*i)+1]))/4096) - (10*((float)(rawResultsDiff[2*i]))/4096);
-      Serial.println(scaledResultsDiff[i]);
+      //Serial.println(scaledResultsDiff[i]);
     }
 
     /*
@@ -271,16 +272,11 @@ void TaskObtainSamples(void *pvParameters) {
   }
 }
 
-
-    
-
-  
-
 void TaskInternalTemp(void *pvParameters) {
   // Perform an action every 1000 ticks.
   // 1 tick = 15ms (ATMEGA watchdog timer used)
   TickType_t xLastWakeTime;
-  const TickType_t xFrequency = 1000;
+  const TickType_t xFrequency = 30;
   // Initialise the xLastWakeTime variable with the current time.
   xLastWakeTime = xTaskGetTickCount();
   for( ;; ) {
@@ -291,6 +287,15 @@ void TaskInternalTemp(void *pvParameters) {
     tInternal = MAX11300.readInternalTemp();
     Serial.print("internal temperature = ");
     Serial.println(tInternal);
+
+    tExternal1 = MAX11300.readExternalTemp1();
+    Serial.print("External 1 temperature = ");
+    Serial.println(tExternal1);
+
+    tExternal2 = MAX11300.readExternalTemp2();
+    Serial.print("External 2 temperature = ");
+    Serial.println(tExternal2);
+    Serial.println(" ");
     taskEXIT_CRITICAL();
   }
 }
