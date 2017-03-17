@@ -2,6 +2,7 @@
 #include <MAX11300registers.h>
 #include <Arduino_FreeRTOS.h>
 #include <SPI.h>
+#include <PID_v1.h>
 #include "avr/pgmspace.h"
 
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))  //clear
@@ -48,16 +49,20 @@ MAX11300 MAX11300(&SPI, convertPin, selectPin);
 
 // Define Tasks
 void TaskInternalTemp   (void *pvParameters);
-void TaskBlink          (void *pvParameters);
 void TaskObtainSamples  (void *pvParameters);
+void TaskHeaterControl  (void *pvParameters);
+void TaskBlink          (void *pvParameters);
+
 
 
 void setup() {
   // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
   // Third argument is the number of words (not bytes!) to allocate for use as the task's stack.
-  xTaskCreate(TaskObtainSamples,  (const portCHAR *) "ObtainSamples", 256, NULL, 1, NULL);
-  xTaskCreate(TaskInternalTemp,   (const portCHAR *) "InternalTemp" , 128, NULL, 4, NULL);
-  xTaskCreate(TaskBlink,          (const portCHAR *) "Blink"        , 128, NULL, 3, NULL);
+  // ORDER THE TASKS BASED ON RUNTIME
+  xTaskCreate(TaskObtainSamples,  (const portCHAR *) "ObtainSamples", 256, NULL, 3, NULL);
+  xTaskCreate(TaskInternalTemp,   (const portCHAR *) "InternalTemp" , 128, NULL, 2, NULL);
+  xTaskCreate(TaskHeaterControl,  (const portCHAR *) "HeaterControl", 128, NULL, 1, NULL);
+  xTaskCreate(TaskBlink,          (const portCHAR *) "Blink"        , 128, NULL, 0, NULL);
   
   Serial.begin(9600);
   
@@ -84,13 +89,13 @@ void setup() {
   // set ADC mode
   // Continuous sweep through the specified pins
   MAX11300.setADCmode(ContinuousSweep);
-  if (MAX11300.getADCmode() == ContinuousSweep){Serial.println("ADC mode set to ContinuousSweep");}
+  // if (MAX11300.getADCmode() == ContinuousSweep){Serial.println("ADC mode set to ContinuousSweep");}
   
   // set conversion rate
   // decrease this and increase the averaging amount to get
   // 400ksps
-  MAX11300.setConversionRate(rate400ksps);
-  if (MAX11300.getConversionRate() == rate400ksps){Serial.println("ADC set to rate400ksps");}
+  MAX11300.setConversionRate(rate200ksps);
+  // if (MAX11300.getConversionRate() == rate200ksps){Serial.println("ADC set to rate200ksps");}
   
   // set pin mode and voltage per pin
 
@@ -196,18 +201,29 @@ void setup() {
   // NB/ Since one conversion per ADC-configured port is performed per sweep, 
   // many sweeps may be required before refreshing the data register of a given ADC-configured port that utilizes the averaging function.
   for (uint8_t i = 0; i < 20; i++){
-    MAX11300.setPinAveraging (i, 64);
+    MAX11300.setPinAveraging (i, 128);
     Serial.println(MAX11300.getPinAveraging(i));
   }
   
   // enable required temperature sensors
-  // 3 sensors can be enables
+  // 3 sensors can be enabled
   // ext2 ext1 internal 
   // count up in 3 bits
   // ie// mode 5 -> 101 -> ext2 enabled and internal enables
   MAX11300.setTempSensorEnableMode(mode7);
   if (MAX11300.getTempSensorEnableMode() == mode7){Serial.println("temp mode7");}
- 
+  
+  // set each temperature sensor averaging
+  // set to 32 samples for a more represenstative reading when sampling as register read rate is very slow
+  MAX11300.setTempAveraging(internal, 32);
+  // Serial.print("internal temp monitor averaging mode: ");
+  // Serial.println(MAX11300.getTempAveraging(internal));
+  MAX11300.setTempAveraging(external1, 32);
+  // Serial.print("external1 temp monitor averaging mode: ");
+  // Serial.println(MAX11300.getTempAveraging(external1));
+  MAX11300.setTempAveraging(external2, 32);
+  // Serial.print("external2 temp monitor averaging mode: ");
+  // Serial.println(MAX11300.getTempAveraging(external2));
 }
 void loop(){
   // Empty. Things are done in Tasks.
@@ -217,6 +233,7 @@ void loop(){
 /*--------------------------------------------------*/
 
 void TaskObtainSamples(void *pvParameters) {
+  (void) pvParameters;
   // Perform an action every 30 ticks.
   // 1 tick = 15ms (ATMEGA watchdog timer used)
   // NB/ ADC data format is straight binary in single-ended mode, and two’s complement in differential and pseudo- differential modes.
@@ -273,10 +290,11 @@ void TaskObtainSamples(void *pvParameters) {
 }
 
 void TaskInternalTemp(void *pvParameters) {
+  (void) pvParameters;
   // Perform an action every 1000 ticks.
   // 1 tick = 15ms (ATMEGA watchdog timer used)
   TickType_t xLastWakeTime;
-  const TickType_t xFrequency = 30;
+  const TickType_t xFrequency = 50;
   // Initialise the xLastWakeTime variable with the current time.
   xLastWakeTime = xTaskGetTickCount();
   for( ;; ) {
@@ -300,19 +318,48 @@ void TaskInternalTemp(void *pvParameters) {
   }
 }
 
-void TaskBlink(void *pvParameters) {
-  (void) pvParameters;
-  pinMode(LED_BUILTIN, OUTPUT);
 
-  for (;;) // A Task shall never return or exit.
-  {
-    digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-    vTaskDelay( 1000 / portTICK_PERIOD_MS ); // wait for one second
-    digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
-    vTaskDelay( 1000 / portTICK_PERIOD_MS ); // wait for one second
-    //Serial.println("hello");
+void TaskHeaterControl(void *pvParameters) {
+  (void) pvParameters;
+  // make a load of states for the ASM
+  // maybe do PID control if you get into a state that needs const temp maintainance
+  // run every time period that is not that quick as temperature changes slowly
+  // Perform an action every 1000 ticks.
+  // 1 tick = 15ms (ATMEGA watchdog timer used)
+  TickType_t xLastWakeTime;
+  const TickType_t xFrequency = 50;
+  // Initialise the xLastWakeTime variable with the current time.
+  xLastWakeTime = xTaskGetTickCount();
+  for (;;) {
+    // Wait for the next cycle.
+    vTaskDelayUntil( &xLastWakeTime, xFrequency );
+    Serial.println("heater control");
+
+    // if temp is below 5 degrees, heat. else don't heat??
+    // PID use less power?
+    // 
   }
 }
+
+void TaskBlink(void *pvParameters) {
+  (void) pvParameters;
+  // make a load of states for the ASM
+  // maybe do PID control if you get into a state that needs const temp maintainance
+  // run every time period that is not that quick as temperature changes slowly
+  // Perform an action every 1000 ticks.
+  // 1 tick = 15ms (ATMEGA watchdog timer used)
+  TickType_t xLastWakeTime;
+  const TickType_t xFrequency = 50;
+  // Initialise the xLastWakeTime variable with the current time.
+  xLastWakeTime = xTaskGetTickCount();
+  for (;;) {
+        // Wait for the next cycle.
+    vTaskDelayUntil( &xLastWakeTime, xFrequency );
+    Serial.println("blink");
+  }
+}
+
+
 
 ISR(TIMER1_COMPA_vect) { // Interrupt Vectors in ATmega328/P
   //period = 4.194 s
