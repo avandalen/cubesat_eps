@@ -1,8 +1,8 @@
 #include <Wire.h>
 
 int16_t sizeOfDataArray;
-float receivedVoltages [4] = {0};
-float receivedCurrents [8] = {0};
+float receivedVoltages [6] = {0};
+float receivedCurrents [5] = {0};
 float receivedTemps    [3] = {0};
 
 void setup() {
@@ -13,7 +13,7 @@ void setup() {
 }
 
 void loop() {
-  delay(100);
+  // delay(100);
 }
 
 // executes whenever data is received from master
@@ -22,21 +22,46 @@ void receiveEvent(int numberOfBytesToReceive) {
   sizeOfDataArray = (Wire.available())/4;     // the amount of bytes in a transfer /4 to give the number of floats being transferred
 
   switch(sizeOfDataArray) {
-    case 4: // array of voltages
+    case 6: // array of voltages
       assembleFloatsfromBytes(receivedVoltages, sizeOfDataArray);
 
+      /*
       for (int16_t i = 0; i < sizeOfDataArray; ++i) {
         Serial.println(receivedVoltages[i]);         // print the array
       }
-      Serial.println("v conversion complete");
+      */
+      Serial.print("v5V_1: ");         
+      Serial.println(receivedVoltages[0]);         // print the array
+      Serial.print("v5V_2: ");
+      Serial.println(receivedVoltages[1]);         // print the array
+      Serial.print("v3.3V_1: ");   
+      Serial.println(receivedVoltages[2]);         // print the array
+      Serial.print("v3.3V_2: ");   
+      Serial.println(receivedVoltages[3]);         // print the array
+      Serial.print("vBatt: ");   
+      Serial.println(receivedVoltages[4]);         // print the array
+      Serial.print("vCell: ");   
+      Serial.println(receivedVoltages[5]);         // print the array
+      Serial.println(" ");
       break;
-    case 8: // array of currents
+    case 5: // array of currents
       assembleFloatsfromBytes(receivedCurrents, sizeOfDataArray);
-
+      /*
       for (int16_t i = 0; i < sizeOfDataArray; ++i) {
         Serial.println(receivedCurrents[i]);         // print the array
       }
-      Serial.println("i conversion complete");
+      */
+      Serial.print("iBatt: ");         
+      Serial.println(receivedCurrents[0], 4);         // print the array
+      Serial.print("i5V_1: ");
+      Serial.println(receivedCurrents[1], 4);         // print the array
+      Serial.print("i5V_2: ");   
+      Serial.println(receivedCurrents[2], 4);         // print the array
+      Serial.print("i3.3V_1: ");   
+      Serial.println(receivedCurrents[3], 4);         // print the array
+      Serial.print("i3.3V_2: ");   
+      Serial.println(receivedCurrents[4], 4);         // print the array
+      Serial.println(" ");
       break;
     case 3: // array of temperatures
       assembleFloatsfromBytes(receivedTemps, sizeOfDataArray);
