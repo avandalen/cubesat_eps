@@ -27,18 +27,17 @@ float currentArray[5] = {0};
 
 // temperatures
 double tExternal2     = 0;
-double tExternal1     = 0;
+double tBatt          = 0;
 double tInternal      = 0;
 float tempArray[3]    = {0};
 
-// full charge of battery -> load into LTC2943 register
 uint8_t fullCharge[2] = {0x72, 0xB5};   // Qbat/Qlsb = 29365 Qlsb's in full charge. 29365 = 0x72B5
 
 MAX11300 MAX11300(&SPI, convertPin, selectPin);
 
 // Define Tasks
-void TaskInternalTemp   (void *pvParameters);
-void TaskObtainSamples  (void *pvParameters);
+void TaskIVSamples      (void *pvParameters);
+void TaskTempSamples    (void *pvParameters);
 void TaskHeaterControl  (void *pvParameters);
 void TaskPowerControl   (void *pvParameters);
 
@@ -53,14 +52,16 @@ void setup() {
   // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
   // Third argument is the number of words (not bytes!) to allocate for use as the task's stack.
   // ORDER THE TASKS BASED ON RUNTIME
-  xTaskCreate(TaskObtainSamples,  (const portCHAR *) "ObtainSamples", 512, NULL, 0, NULL);
-  xTaskCreate(TaskInternalTemp,   (const portCHAR *) "InternalTemp" , 128, NULL, 1, NULL);
+  xTaskCreate(TaskIVSamples,      (const portCHAR *) "IVSamples",     512, NULL, 0, NULL);
+  xTaskCreate(TaskTempSamples,    (const portCHAR *) "TempSamples",   128, NULL, 1, NULL);
   xTaskCreate(TaskHeaterControl,  (const portCHAR *) "HeaterControl", 128, NULL, 2, NULL);
-  xTaskCreate(TaskPowerControl,   (const portCHAR *) "PowerControl" , 128, NULL, 3, NULL);
+  xTaskCreate(TaskPowerControl,   (const portCHAR *) "PowerControl",  128, NULL, 3, NULL);
 
   Wire.begin();             // join I2C bus (address optional for master)
+  Wire.setClock(100000);    // set I2C clock freq to 400kHz
   I2c.begin();
-  Wire.setClock(400000);    // set I2C clock freq to 400kHz
+  I2c.setSpeed(100000);
+
   MAX11300.begin();
   
   Serial.begin(9600);
@@ -69,27 +70,11 @@ void setup() {
   setupTimerInterrupts();
   setupExternalInterrupts();
 
-    // Configure LTC2943 by writing to register B -> see below for configuration details
-
-  // B[7:6] - 01  manual mode -> initiate conversion from microcontroller , 00 sleep mode -> use just for config in void setup
-  // B[5:3] - 100 prescaler of 256, 011 prescaler of 64
-  // B[2:1] - 10  ALCC' pin in alert mode
-  // B[0]   -     1 to shut down analogue part of chip to program in charge in battery. 0 to switch it back on
-
-  // write data left in binary so configuration can be seen easily -> write more detailed LTC2943.h file next
-  // (uint8_t address, uint8_t registerAddress, uint8_t *data, uint8_t numberBytes)
-  // I2c.write(LTC2943_ADDRESS, LTC_CONTROL, B00011001);
-  // I2c.write(LTC2943_ADDRESS, LTC_ACCU_CHARGE_MSB, fullCharge, 2);  // when starting up, program in full charge
-  // I2c.write(LTC2943_ADDRESS, LTC_CONTROL, B00011000);
-
   // setup MCU as I2C slave so that the onboard computer can request power over I2C // slave sender, master reader, Sends data as an I2C/TWI slave device
   // also have the ground Arduino request data as a master
 
   // master writer, slave receiver -> master sends, slave prints out received message       <- for the EPS to 'ground' Arduino
-
   // master reader, slave sender   -> master requests, slave sends what has been requested  <- for the EPS to onboard computer
-  
-
   
   // Identify shield by ID register  
   MAX_ID = MAX11300.checkID();     
@@ -221,7 +206,7 @@ void setup() {
         Serial.println(" pin ref ADCInternal");
       }
   }
-  
+
   // set averaging per pin
   // set to average 128 samples before loading into ADC reg for pin
   // NB/ Since one conversion per ADC-configured port is performed per sweep, 
@@ -259,7 +244,7 @@ void loop(){
 /*---------------------- Tasks ---------------------*/
 /*--------------------------------------------------*/
 
-void TaskObtainSamples(void *pvParameters) {
+void TaskIVSamples(void *pvParameters) {
   (void) pvParameters;
   // Perform an action every 30 ticks.
   // 1 tick = 15ms (ATMEGA watchdog timer used)
@@ -276,18 +261,20 @@ void TaskObtainSamples(void *pvParameters) {
   float    scaledResultsSing[numberOfSingEndSensors] = {0};
   // float    scaledResultsDiff[8]                       = {0};
 
+  // B[7:6] - 01  manual mode -> initiate conversion from microcontroller , 00 sleep mode -> use just for config in void setup
+  // B[5:3] - 100 prescaler of 256, 011 prescaler of 64
+  // B[2:1] - 10  ALCC' pin in alert mode
+  // B[0]   -     1 to shut down analogue part of chip to program in charge in battery. 0 to switch it back on
+
+  // (uint8_t address, uint8_t registerAddress, uint8_t *data, uint8_t numberBytes)
+  I2c.write(LTC2943_ADDRESS, LTC_CONTROL, B00011001);
+  I2c.write(LTC2943_ADDRESS, LTC_ACCU_CHARGE_MSB, fullCharge, 2);  // when starting up, program in full charge
+  I2c.write(LTC2943_ADDRESS, LTC_CONTROL, B00011000);
+
   for (;;) {
-    /*
-    uint16_t readAnalogPin (uint8_t pin);
-    bool burstAnalogRead (uint16_t* samples, uint8_t size);
-    bool isAnalogDataReady (uint8_t pin);
-    bool isAnalogConversionComplete (void);
-    void serviceInterrupt(void);
-    */
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency);
     
-    // Single-ended results  -> 0 to 3
     taskENTER_CRITICAL();
 
     MAX11300.burstAnalogRead(0, rawResultsSing, numberOfSingEndSensors);
@@ -303,7 +290,6 @@ void TaskObtainSamples(void *pvParameters) {
     voltageArray[2] = 10.0000 * scaledResultsSing[2]; // v3.3V_1
     voltageArray[3] = 10.0000 * scaledResultsSing[3]; // v3.3V_2
     
-    
     // fill current array
     // ADCZeroTo2_5
     // current = (approx(~)2.42 - voltage reading) / 0.1 -> 100mV per Amp -> ~2.42 = voltage given when no current is sensed
@@ -318,7 +304,19 @@ void TaskObtainSamples(void *pvParameters) {
     // ADCZeroTo10
     voltageArray[4] = 10.0000 * scaledResultsSing[9];  // vBatt
     voltageArray[5] = 10.0000 * scaledResultsSing[10]; // vCell
-  
+
+    // Initiate conversion by setting B[7:6] to 01 then wait for 33ms + before reading from registers
+    I2c.write(LTC2943_ADDRESS, LTC_CONTROL, B01100100);
+    vTaskDelay(2);
+    
+    // Read two bytes form LTC_ACCU_CHARGE_MSB and convert to Accumulated Charge
+    int16_t LTC2943AccuChargeRaw = readReg16(LTC_ACCU_CHARGE_MSB);
+    float LTC2943AccuCharge = 0.08854  * LTC2943AccuChargeRaw;
+
+    Serial.print("Qbat: ");
+    Serial.print(LTC2943AccuCharge);
+    Serial.println("mAh  ");
+
     taskEXIT_CRITICAL();
 
     Wire.beginTransmission(8);  // transmit to device #8
@@ -350,7 +348,7 @@ void TaskObtainSamples(void *pvParameters) {
   }
 }
 
-void TaskInternalTemp(void *pvParameters) {
+void TaskTempSamples(void *pvParameters) {
   (void) pvParameters;
   // Perform an action every 1000 ticks.
   // 1 tick = 15ms (ATMEGA watchdog timer used)
@@ -361,24 +359,26 @@ void TaskInternalTemp(void *pvParameters) {
   for( ;; ) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
+
     // check internal and battery temperature 
     taskENTER_CRITICAL();
+
     tInternal = MAX11300.readInternalTemp();
-    Serial.print("internal temperature = ");
-    Serial.println(tInternal);
-
-    tExternal1 = MAX11300.readExternalTemp1();
-    Serial.print("External 1 temperature = ");
-    Serial.println(tExternal1);
-
+    tBatt = MAX11300.readExternalTemp1();
     tExternal2 = MAX11300.readExternalTemp2();
-    Serial.print("External 2 temperature = ");
-    Serial.println(tExternal2);
-    Serial.println(" ");
+
     taskEXIT_CRITICAL();
+
+    // fill temp array
+    tempArray[0] = tInternal;
+    tempArray[1] = tBatt;
+    tempArray[2] = tExternal2;
+
+    Wire.beginTransmission(8);  // transmit to device #8
+    splitFloatsIntoBytesAndSend(tempArray, 3);
+    Wire.endTransmission();    // stop transmitting
   }
 }
-
 
 void TaskHeaterControl(void *pvParameters) {
   (void) pvParameters;
@@ -391,6 +391,12 @@ void TaskHeaterControl(void *pvParameters) {
   const TickType_t xFrequency = 50;
   // Initialise the xLastWakeTime variable with the current time.
   xLastWakeTime = xTaskGetTickCount();
+
+  double tBattFiltered = MAX11300.readExternalTemp1();
+  double a = 0.1;      // filter coefficient
+  double setPoint = 25;
+  double hysteresis = 0.5;
+
   for (;;) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
@@ -398,7 +404,21 @@ void TaskHeaterControl(void *pvParameters) {
 
     // if temp is below 5 degrees, heat. else don't heat??
     // PID use less power?
-    // 
+  
+    tBatt = MAX11300.readExternalTemp1();
+    tBattFiltered += a * (tBatt - tBattFiltered) ;                                      // first order low pass digital filter
+
+    Serial.println(tBattFiltered);
+
+    if (tBattFiltered >= (setPoint + hysteresis)) {                                     // above upper hysteresis threshold so stop heating
+      digitalWrite(8, HIGH);
+    }
+    else if (tBattFiltered < (setPoint - hysteresis)) {                                 // below lower hysteresis threshold so start heating
+      analogWrite(8, 0);  // duty cycle input is opposite with P-FET -> higher duty input = lower duty output
+    }
+    else if ((tBattFiltered < setPoint) && (tBattFiltered > (setPoint - hysteresis))) { // inside hysteresis so heat slower
+      analogWrite(8, 10);
+    }
   }
 }
 
@@ -416,13 +436,10 @@ void TaskPowerControl(void *pvParameters) {
   for (;;) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
-    // Serial.println("blink");
 
-    digitalWrite(8, LOW);
-    // vTaskDelay(2);
-    // digitalWrite(8, HIGH);
-    // vTaskDelay(2);
-
+    /*
+    Power arbitration algorithm goes here
+    */
     digitalWrite(9, HIGH);
     // vTaskDelay(2);
     // digitalWrite(8, HIGH);
@@ -438,6 +455,10 @@ void TaskPowerControl(void *pvParameters) {
     // digitalWrite(8, HIGH);
     // vTaskDelay(2);
   }
+}
+
+void receiveEvent(int numberOfBytesToReceive) {
+
 }
 
 ISR(TIMER1_COMPA_vect) { // Interrupt Vectors in ATmega328/P
@@ -520,7 +541,25 @@ void splitFloatsIntoBytesAndSend(float * values, uint8_t sizeOfArray) {
   }
 }
 
-/*
+void assembleFloatsfromBytes(float * values, int16_t sizeOfArray) {
+  // create a union which will contain the float variable (f) in the same address space as four bytes (byte[4])
+  // the bytes are thus the four bytes of the float and can be received over I2C
+  // they are then accessed as a float
+  union {                    
+    float f;
+    int8_t bytes[4];
+  } Union;
+
+  for (int16_t i = 0; i < sizeOfArray; i++) {
+    Union.bytes[3] = Wire.read(); // MSB
+    Union.bytes[2] = Wire.read();
+    Union.bytes[1] = Wire.read();
+    Union.bytes[0] = Wire.read(); // LSB
+
+    values[i] = Union.f;
+  }
+}
+
 uint8_t readReg8(uint16_t regAddress) {
   uint8_t data = 0;
 
@@ -544,4 +583,3 @@ uint16_t readReg16(uint16_t regAddress) {
 
   return(data);
 }
-*/

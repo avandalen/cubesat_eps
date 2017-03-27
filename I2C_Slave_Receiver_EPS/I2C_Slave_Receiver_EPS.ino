@@ -1,4 +1,6 @@
 #include <Wire.h>
+#include <I2C.h>
+#include "LTC2943.h"
 
 int16_t sizeOfDataArray;
 float receivedVoltages [6] = {0};
@@ -65,11 +67,18 @@ void receiveEvent(int numberOfBytesToReceive) {
       break;
     case 3: // array of temperatures
       assembleFloatsfromBytes(receivedTemps, sizeOfDataArray);
-
+      /*
       for (int16_t i = 0; i < sizeOfDataArray; ++i) {
         Serial.println(receivedTemps[i]);         // print the array
       }
-      Serial.println("t conversion complete");
+      */
+      Serial.print("tInternal: ");         
+      Serial.println(receivedTemps[0], 4);         // print the array
+      Serial.print("tBatt: ");
+      Serial.println(receivedTemps[1], 4);         // print the array
+      Serial.print("tExternal2: ");   
+      Serial.println(receivedTemps[2], 4);         // print the array
+      Serial.println(" ");
       break;
   }
 }
