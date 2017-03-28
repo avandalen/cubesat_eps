@@ -31,6 +31,9 @@ double tBatt          = 0;
 double tInternal      = 0;
 float tempArray[3]    = {0};
 
+// battery charge
+float battCharge[1]   = {0};
+
 uint8_t fullCharge[2] = {0x72, 0xB5};   // Qbat/Qlsb = 29365 Qlsb's in full charge. 29365 = 0x72B5
 
 MAX11300 MAX11300(&SPI, convertPin, selectPin);
@@ -279,6 +282,18 @@ void TaskIVSamples(void *pvParameters) {
 
     MAX11300.burstAnalogRead(0, rawResultsSing, numberOfSingEndSensors);
 
+    // Initiate conversion by setting B[7:6] to 01 then wait for 33ms + before reading from registers
+    I2c.write(LTC2943_ADDRESS, LTC_CONTROL, B01100100);
+    vTaskDelay(2);
+
+    // Read two bytes form LTC_ACCU_CHARGE_MSB and convert to Accumulated Charge
+    int16_t LTC2943AccuChargeRaw = readReg16(LTC_ACCU_CHARGE_MSB);
+    float LTC2943AccuCharge = 0.08854  * LTC2943AccuChargeRaw;
+
+    // Read two bytes from LTC_VOLTAGE_MSB and convert to Voltage
+    int16_t LTC2943VoltageRaw = readReg16(LTC_VOLTAGE_MSB);
+    float LTC2943Voltage = 23.600 * LTC2943VoltageRaw / 65535.000;
+
     for (uint8_t i = 0; i < numberOfSingEndSensors; i++) {
       scaledResultsSing[i] = ((float)(rawResultsSing[i]))/4096.0000; 
     }
@@ -294,24 +309,20 @@ void TaskIVSamples(void *pvParameters) {
     // ADCZeroTo2_5
     // current = (approx(~)2.42 - voltage reading) / 0.1 -> 100mV per Amp -> ~2.42 = voltage given when no current is sensed
     // in this wiring config of the sensors the output voltage decreases with an increase in current
-    currentArray[0] = (2.4200 - (2.5000 * scaledResultsSing[4])) / 0.1000; // iBatt
-    currentArray[1] = (2.4200 - (2.5000 * scaledResultsSing[5])) / 0.1000; // i5V_1
-    currentArray[2] = (2.4160 - (2.5000 * scaledResultsSing[6])) / 0.1000; // i5V_2
-    currentArray[3] = (2.4160 - (2.5000 * scaledResultsSing[7])) / 0.1000; // i3.3V_1
-    currentArray[4] = (2.4160 - (2.5000 * scaledResultsSing[8])) / 0.1000; // i3.3V_2
+    // currentArray[0] = (2.4200 - (2.5000 * scaledResultsSing[4])) / 0.1000; // iCell
+    currentArray[0] = (2.500 - (2.5000 * scaledResultsSing[4])) / 0.1000; // iBatt
+    currentArray[1] = (2.500 - (2.5000 * scaledResultsSing[5])) / 0.1000; // i5V_1
+    currentArray[2] = (2.500 - (2.5000 * scaledResultsSing[6])) / 0.1000; // i5V_2
+    currentArray[3] = (2.500 - (2.5000 * scaledResultsSing[7])) / 0.1000; // i3.3V_1
+    currentArray[4] = (2.500 - (2.5000 * scaledResultsSing[8])) / 0.1000; // i3.3V_2
 
     // fill rest of voltage array
     // ADCZeroTo10
-    voltageArray[4] = 10.0000 * scaledResultsSing[9];  // vBatt
-    voltageArray[5] = 10.0000 * scaledResultsSing[10]; // vCell
+    voltageArray[4] = LTC2943Voltage;                 // vBatt
+    voltageArray[5] = 10.0000 * scaledResultsSing[9]; // vCell
 
-    // Initiate conversion by setting B[7:6] to 01 then wait for 33ms + before reading from registers
-    I2c.write(LTC2943_ADDRESS, LTC_CONTROL, B01100100);
-    vTaskDelay(2);
-    
-    // Read two bytes form LTC_ACCU_CHARGE_MSB and convert to Accumulated Charge
-    int16_t LTC2943AccuChargeRaw = readReg16(LTC_ACCU_CHARGE_MSB);
-    float LTC2943AccuCharge = 0.08854  * LTC2943AccuChargeRaw;
+    // fill battery charge variable
+    battCharge[0] = LTC2943AccuCharge;
 
     Serial.print("Qbat: ");
     Serial.print(LTC2943AccuCharge);
@@ -326,6 +337,11 @@ void TaskIVSamples(void *pvParameters) {
     Wire.beginTransmission(8);  // transmit to device #8
     splitFloatsIntoBytesAndSend(currentArray, 5);
     Wire.endTransmission();    // stop transmitting
+
+    Wire.beginTransmission(8);  // transmit to device #8
+    splitFloatsIntoBytesAndSend(battCharge, 1);
+    Wire.endTransmission();    // stop transmitting
+
 
     /*
     // Differential results -> 4 to 19
@@ -440,17 +456,17 @@ void TaskPowerControl(void *pvParameters) {
     /*
     Power arbitration algorithm goes here
     */
-    digitalWrite(9, HIGH);
+    digitalWrite(9, LOW);
     // vTaskDelay(2);
     // digitalWrite(8, HIGH);
     // vTaskDelay(2);
 
-    digitalWrite(10, HIGH);
+    digitalWrite(10, LOW);
     // vTaskDelay(2);
     // digitalWrite(8, HIGH);
     // vTaskDelay(2);
 
-    digitalWrite(11, HIGH);
+    digitalWrite(11, LOW);
     // vTaskDelay(2);
     // digitalWrite(8, HIGH);
     // vTaskDelay(2);

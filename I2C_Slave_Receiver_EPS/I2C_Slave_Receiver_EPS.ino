@@ -5,6 +5,7 @@
 int16_t sizeOfDataArray;
 float receivedVoltages [6] = {0};
 float receivedCurrents [5] = {0};
+float receivedCharge   [1] = {0};
 float receivedTemps    [3] = {0};
 
 void setup() {
@@ -78,6 +79,13 @@ void receiveEvent(int numberOfBytesToReceive) {
       Serial.println(receivedTemps[1], 4);         // print the array
       Serial.print("tExternal2: ");   
       Serial.println(receivedTemps[2], 4);         // print the array
+      Serial.println(" ");
+      break;
+
+    case 1: // battery charge
+    assembleFloatsfromBytes(receivedCharge, sizeOfDataArray);
+      Serial.print("battCharge: ");         
+      Serial.println(receivedCharge[0], 4);         // print the array
       Serial.println(" ");
       break;
   }
