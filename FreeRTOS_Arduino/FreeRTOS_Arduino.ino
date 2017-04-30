@@ -11,7 +11,11 @@
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))  //clear
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))   //set
 
-uint8_t convertPin = 9;
+// used for when a slower/more uniform diagnostic readout is required
+// controls wake time of tasks
+const TickType_t readoutFreq = 50; 
+
+uint8_t convertPin = 12;
 uint8_t selectPin  = 6;
 uint16_t MAX_ID    = 0;
 
@@ -36,6 +40,10 @@ float battCharge[1]   = {0};
 
 uint8_t fullCharge[2] = {0x72, 0xB5};   // Qbat/Qlsb = 29365 Qlsb's in full charge. 29365 = 0x72B5
 
+// receiving requests
+int16_t sizeOfDataArray;
+float request[4];
+
 MAX11300 MAX11300(&SPI, convertPin, selectPin);
 
 // Define Tasks
@@ -48,9 +56,13 @@ void setup() {
 
   // PDM MOSFET gate pins
   pinMode(8, OUTPUT);
+  digitalWrite(8, HIGH); 
   pinMode(9, OUTPUT);
+  digitalWrite(9, HIGH); 
   pinMode(10, OUTPUT);
+  digitalWrite(10, HIGH); 
   pinMode(11, OUTPUT);
+  digitalWrite(11, HIGH); 
 
   // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
   // Third argument is the number of words (not bytes!) to allocate for use as the task's stack.
@@ -60,8 +72,9 @@ void setup() {
   xTaskCreate(TaskHeaterControl,  (const portCHAR *) "HeaterControl", 128, NULL, 2, NULL);
   xTaskCreate(TaskPowerControl,   (const portCHAR *) "PowerControl",  128, NULL, 3, NULL);
 
-  Wire.begin();             // join I2C bus (address optional for master)
+  Wire.begin(9);             // join I2C bus (address optional for master)
   Wire.setClock(100000);    // set I2C clock freq to 400kHz
+  Wire.onReceive(receiveEvent); // register event
   I2c.begin();
   I2c.setSpeed(100000);
 
@@ -92,10 +105,8 @@ void setup() {
   if (MAX11300.getADCmode() == ContinuousSweep){Serial.println("ADC mode set to ContinuousSweep");}
   
   // set conversion rate
-  // decrease this and increase the averaging amount to get
-  // 400ksps -> 200ksps
-  MAX11300.setConversionRate(rate200ksps);
-  if (MAX11300.getConversionRate() == rate200ksps){Serial.println("ADC set to rate200ksps");}
+  MAX11300.setConversionRate(rate400ksps);
+  if (MAX11300.getConversionRate() == rate400ksps){Serial.println("ADC set to rate400ksps");}
   
   // set pin mode and voltage per pin
 
@@ -249,12 +260,12 @@ void loop(){
 
 void TaskIVSamples(void *pvParameters) {
   (void) pvParameters;
-  // Perform an action every 30 ticks.
+  // Perform an action every 50 ticks.
   // 1 tick = 15ms (ATMEGA watchdog timer used)
   // NB/ ADC data format is straight binary in single-ended mode, and two’s complement in differential and pseudo- differential modes.
   
   TickType_t xLastWakeTime;
-  const TickType_t xFrequency = 50;
+  const TickType_t xFrequency = readoutFreq;
   // Initialise the xLastWakeTime variable with the current time.
   xLastWakeTime = xTaskGetTickCount();
 
@@ -279,6 +290,7 @@ void TaskIVSamples(void *pvParameters) {
     vTaskDelayUntil( &xLastWakeTime, xFrequency);
     
     taskENTER_CRITICAL();
+    Serial.println("task 1");
 
     MAX11300.burstAnalogRead(0, rawResultsSing, numberOfSingEndSensors);
 
@@ -323,11 +335,6 @@ void TaskIVSamples(void *pvParameters) {
 
     // fill battery charge variable
     battCharge[0] = LTC2943AccuCharge;
-
-    Serial.print("Qbat: ");
-    Serial.print(LTC2943AccuCharge);
-    Serial.println("mAh  ");
-
     taskEXIT_CRITICAL();
 
     Wire.beginTransmission(8);  // transmit to device #8
@@ -341,7 +348,6 @@ void TaskIVSamples(void *pvParameters) {
     Wire.beginTransmission(8);  // transmit to device #8
     splitFloatsIntoBytesAndSend(battCharge, 1);
     Wire.endTransmission();    // stop transmitting
-
 
     /*
     // Differential results -> 4 to 19
@@ -369,12 +375,13 @@ void TaskTempSamples(void *pvParameters) {
   // Perform an action every 1000 ticks.
   // 1 tick = 15ms (ATMEGA watchdog timer used)
   TickType_t xLastWakeTime;
-  const TickType_t xFrequency = 50;
+  const TickType_t xFrequency = readoutFreq;
   // Initialise the xLastWakeTime variable with the current time.
   xLastWakeTime = xTaskGetTickCount();
   for( ;; ) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
+    Serial.println("task 4");
 
     // check internal and battery temperature 
     taskENTER_CRITICAL();
@@ -416,15 +423,13 @@ void TaskHeaterControl(void *pvParameters) {
   for (;;) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
-    Serial.println("heater control");
+    Serial.println("task 2");
 
     // if temp is below 5 degrees, heat. else don't heat??
     // PID use less power?
   
     tBatt = MAX11300.readExternalTemp1();
     tBattFiltered += a * (tBatt - tBattFiltered) ;                                      // first order low pass digital filter
-
-    Serial.println(tBattFiltered);
 
     if (tBattFiltered >= (setPoint + hysteresis)) {                                     // above upper hysteresis threshold so stop heating
       digitalWrite(8, HIGH);
@@ -452,29 +457,50 @@ void TaskPowerControl(void *pvParameters) {
   for (;;) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
+    Serial.println("task 3");
 
     /*
     Power arbitration algorithm goes here
+    battery energy = (vBatt * qBatt * 3600) J
     */
-    digitalWrite(9, LOW);
-    // vTaskDelay(2);
-    // digitalWrite(8, HIGH);
-    // vTaskDelay(2);
+    taskENTER_CRITICAL();
 
-    digitalWrite(10, LOW);
-    // vTaskDelay(2);
-    // digitalWrite(8, HIGH);
-    // vTaskDelay(2);
-
-    digitalWrite(11, LOW);
-    // vTaskDelay(2);
-    // digitalWrite(8, HIGH);
-    // vTaskDelay(2);
+    switch((uint8_t)request[0]) {
+      case 1:
+        digitalWrite(8, LOW);
+        vTaskDelay(120);
+        digitalWrite(8, HIGH); 
+        break;
+      case 2:
+        Serial.println("2 received");
+        digitalWrite(9, LOW);
+        vTaskDelay(120);
+        digitalWrite(9, HIGH);  
+        break;
+      case 3:
+        Serial.println("3 received");
+        digitalWrite(10, LOW);
+        vTaskDelay(120); 
+        digitalWrite(10, HIGH); 
+        break;
+      case 4:
+        Serial.println("4 received");
+        digitalWrite(11, LOW);
+        vTaskDelay(120);
+        digitalWrite(11, HIGH);  
+        break;
+    } 
+  taskEXIT_CRITICAL();
   }
 }
 
 void receiveEvent(int numberOfBytesToReceive) {
+  // get data from onboard compar
+  // stick in global variables
+  // feed to the power control task
 
+  sizeOfDataArray = (Wire.available())/4;
+  assembleFloatsfromBytes(request, sizeOfDataArray);
 }
 
 ISR(TIMER1_COMPA_vect) { // Interrupt Vectors in ATmega328/P
