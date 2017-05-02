@@ -13,7 +13,7 @@
 
 // used for when a slower/more uniform diagnostic readout is required
 // controls wake time of tasks
-const TickType_t readoutFreq = 50; 
+const TickType_t readoutFreq = 3; 
 
 uint8_t convertPin = 12;
 uint8_t selectPin  = 6;
@@ -67,10 +67,10 @@ void setup() {
   // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
   // Third argument is the number of words (not bytes!) to allocate for use as the task's stack.
   // ORDER THE TASKS BASED ON RUNTIME
-  xTaskCreate(TaskIVSamples,      (const portCHAR *) "IVSamples",     512, NULL, 0, NULL);
-  xTaskCreate(TaskTempSamples,    (const portCHAR *) "TempSamples",   128, NULL, 1, NULL);
-  xTaskCreate(TaskHeaterControl,  (const portCHAR *) "HeaterControl", 128, NULL, 2, NULL);
-  xTaskCreate(TaskPowerControl,   (const portCHAR *) "PowerControl",  128, NULL, 3, NULL);
+  xTaskCreate(TaskIVSamples,      (const portCHAR *) "IVSamples",     150, NULL, 0, NULL);
+  xTaskCreate(TaskTempSamples,    (const portCHAR *) "TempSamples",   100, NULL, 1, NULL);
+  xTaskCreate(TaskHeaterControl,  (const portCHAR *) "HeaterControl", 100, NULL, 2, NULL);
+  xTaskCreate(TaskPowerControl,   (const portCHAR *) "PowerControl",  100, NULL, 3, NULL);
 
   Wire.begin(9);             // join I2C bus (address optional for master)
   Wire.setClock(100000);    // set I2C clock freq to 400kHz
@@ -290,7 +290,6 @@ void TaskIVSamples(void *pvParameters) {
     vTaskDelayUntil( &xLastWakeTime, xFrequency);
     
     taskENTER_CRITICAL();
-    Serial.println("task 1");
 
     MAX11300.burstAnalogRead(0, rawResultsSing, numberOfSingEndSensors);
 
@@ -331,6 +330,7 @@ void TaskIVSamples(void *pvParameters) {
     // fill rest of voltage array
     // ADCZeroTo10
     voltageArray[4] = LTC2943Voltage;                 // vBatt
+    Serial.println(voltageArray[4]);
     voltageArray[5] = 10.0000 * scaledResultsSing[9]; // vCell
 
     // fill battery charge variable
@@ -381,7 +381,6 @@ void TaskTempSamples(void *pvParameters) {
   for( ;; ) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
-    Serial.println("task 4");
 
     // check internal and battery temperature 
     taskENTER_CRITICAL();
@@ -423,7 +422,6 @@ void TaskHeaterControl(void *pvParameters) {
   for (;;) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
-    Serial.println("task 2");
 
     // if temp is below 5 degrees, heat. else don't heat??
     // PID use less power?
@@ -457,7 +455,6 @@ void TaskPowerControl(void *pvParameters) {
   for (;;) {
     // Wait for the next cycle.
     vTaskDelayUntil( &xLastWakeTime, xFrequency );
-    Serial.println("task 3");
 
     /*
     Power arbitration algorithm goes here
