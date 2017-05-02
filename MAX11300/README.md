@@ -1,6 +1,6 @@
-Repaired Version of MAX11300Arduino library - designed as part of the Multispork project
+Repaired Version of MAX11300Arduino library - designed as part of the Multispork project by Pierce Nichols
 
-https://github.com/logos-electromechanical/MultiSpork
+https://github.com/logos-electromechanical/MAX11300Arduino
 
 "# MAX11300Arduino
 This is a library for talking to the MAX11300 from any Arduino. 
