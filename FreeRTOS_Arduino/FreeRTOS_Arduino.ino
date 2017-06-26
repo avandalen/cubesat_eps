@@ -105,8 +105,8 @@ void setup() {
   if (MAX11300.getADCmode() == ContinuousSweep){Serial.println("ADC mode set to ContinuousSweep");}
   
   // set conversion rate
-  MAX11300.setConversionRate(rate400ksps);
-  if (MAX11300.getConversionRate() == rate400ksps){Serial.println("ADC set to rate400ksps");}
+  MAX11300.setConversionRate(rate200ksps);
+  if (MAX11300.getConversionRate() == rate200ksps){Serial.println("ADC set to rate200ksps");}
   
   // set pin mode and voltage per pin
 
@@ -121,16 +121,16 @@ void setup() {
   if (MAX11300.getPinModeMAX(3) == analogIn){Serial.println("pin 3 set to ADC");} if(MAX11300.getPinADCRange(3) == ADCZeroTo10){Serial.println("pin3 set ADCZeroTo10");}
   
   // Positive analog input to single-ended ADC -> for system currents: iBatt, i5V_1, i5V_2, i3.3V_i, i3.3V_2
-  MAX11300.setPinModeMAX(4, MAX_FUNCID_ADC, ADCZeroTo2_5);
-  if (MAX11300.getPinModeMAX(4) == analogIn){Serial.println("pin 4 set to ADC");} if(MAX11300.getPinADCRange(4) == ADCZeroTo2_5){Serial.println("pin4 set ADCZeroTo2_5");}
-  MAX11300.setPinModeMAX(5, MAX_FUNCID_ADC, ADCZeroTo2_5);
-  if (MAX11300.getPinModeMAX(5) == analogIn){Serial.println("pin 5 set to ADC");} if(MAX11300.getPinADCRange(5) == ADCZeroTo2_5){Serial.println("pin5 set ADCZeroTo2_5");}
-  MAX11300.setPinModeMAX(6, MAX_FUNCID_ADC, ADCZeroTo2_5);
-  if (MAX11300.getPinModeMAX(6) == analogIn){Serial.println("pin 6 set to ADC");} if(MAX11300.getPinADCRange(6) == ADCZeroTo2_5){Serial.println("pin6 set ADCZeroTo2_5");}
-  MAX11300.setPinModeMAX(7, MAX_FUNCID_ADC, ADCZeroTo2_5);
-  if (MAX11300.getPinModeMAX(7) == analogIn){Serial.println("pin 7 set to ADC");} if(MAX11300.getPinADCRange(7) == ADCZeroTo2_5){Serial.println("pin7 set ADCZeroTo2_5");}
-  MAX11300.setPinModeMAX(8, MAX_FUNCID_ADC, ADCZeroTo2_5);
-  if (MAX11300.getPinModeMAX(8) == analogIn){Serial.println("pin 8 set to ADC");} if(MAX11300.getPinADCRange(8) == ADCZeroTo2_5){Serial.println("pin8 set ADCZeroTo2_5");}
+  MAX11300.setPinModeMAX(4, MAX_FUNCID_ADC, ADCZeroTo10);
+  if (MAX11300.getPinModeMAX(4) == analogIn){Serial.println("pin 4 set to ADC");} if(MAX11300.getPinADCRange(4) == ADCZeroTo10){Serial.println("pin4 set ADCZeroTo10");}
+  MAX11300.setPinModeMAX(5, MAX_FUNCID_ADC, ADCZeroTo10);
+  if (MAX11300.getPinModeMAX(5) == analogIn){Serial.println("pin 5 set to ADC");} if(MAX11300.getPinADCRange(5) == ADCZeroTo10){Serial.println("pin5 set ADCZeroTo10");}
+  MAX11300.setPinModeMAX(6, MAX_FUNCID_ADC, ADCZeroTo10);
+  if (MAX11300.getPinModeMAX(6) == analogIn){Serial.println("pin 6 set to ADC");} if(MAX11300.getPinADCRange(6) == ADCZeroTo10){Serial.println("pin6 set ADCZeroTo10");}
+  MAX11300.setPinModeMAX(7, MAX_FUNCID_ADC, ADCZeroTo10);
+  if (MAX11300.getPinModeMAX(7) == analogIn){Serial.println("pin 7 set to ADC");} if(MAX11300.getPinADCRange(7) == ADCZeroTo10){Serial.println("pin7 set ADCZeroTo10");}
+  MAX11300.setPinModeMAX(8, MAX_FUNCID_ADC, ADCZeroTo10);
+  if (MAX11300.getPinModeMAX(8) == analogIn){Serial.println("pin 8 set to ADC");} if(MAX11300.getPinADCRange(8) == ADCZeroTo10){Serial.println("pin8 set ADCZeroTo10");}
   
   // Positive analog input to single-ended ADC -> for battery and solar cell voltages: vBatt, vCell
   MAX11300.setPinModeMAX(9, MAX_FUNCID_ADC, ADCZeroTo10);
@@ -417,7 +417,7 @@ void TaskHeaterControl(void *pvParameters) {
   double tBattFiltered = MAX11300.readExternalTemp1();
   double a = 0.1;      // filter coefficient
   double setPoint = 25;
-  double hysteresis = 0.5;
+  double hysteresis = 1;
 
   for (;;) {
     // Wait for the next cycle.
